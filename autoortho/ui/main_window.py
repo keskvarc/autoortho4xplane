@@ -524,7 +524,7 @@ class ConfigUI(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle(f'AutoOrtho ver {__version__}')
+        self.setWindowTitle(f'AutoOrtho-KS ver {__version__}')
         width = int(getattr(self.cfg.general, "window_width", 1100))
         height = int(getattr(self.cfg.general, "window_height", 760))
         x = int(getattr(self.cfg.general, "window_x", 100))
@@ -670,7 +670,7 @@ class ConfigUI(QMainWindow):
         self.setWindowIcon(QIcon(icon_path))
 
         self.shell = ApplicationShell(
-            app_name="AutoOrtho",
+            app_name="AutoOrtho-KS",
             version_text=__version__,
             task_manager=self.task_manager,
         )
@@ -678,7 +678,6 @@ class ConfigUI(QMainWindow):
         self.setCentralWidget(shell_central)
         self.task_panel = self.shell.task_panel
         self.shell.header.set_icon(QPixmap(icon_path))
-        self.shell.header.set_brand_banner(QPixmap(":/imgs/banner1.png"))
 
         # Hidden compatibility host retained for internal navigation and tests.
         self.tabs = QTabWidget(self)
@@ -1568,8 +1567,8 @@ class ConfigUI(QMainWindow):
     def _show_about(self):
         QMessageBox.about(
             self,
-            "About AutoOrtho",
-            f"AutoOrtho {__version__}\n\n"
+            "About AutoOrtho-KS",
+            f"AutoOrtho-KS {__version__}\n\n"
             "On-demand orthophoto scenery streaming for X-Plane.",
         )
 

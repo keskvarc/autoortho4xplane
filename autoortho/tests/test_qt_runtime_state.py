@@ -73,6 +73,13 @@ def _wait_for_state(app, ui, state, timeout=2.0):
     )
 
 
+def test_fork_identity_without_scenery_banner(config_ui):
+    assert config_ui.windowTitle().startswith("AutoOrtho-KS ver ")
+    assert config_ui.shell.header.app_name_label.text() == "AutoOrtho-KS"
+    assert config_ui.shell.header.brand_image_label.isHidden()
+    assert not config_ui.shell.header.app_icon_label.isHidden()
+
+
 def test_runtime_state_controls(config_ui):
     config_ui._set_runtime_state(RuntimeState.RUNNING)
     assert config_ui.run_button.text() == "Stop Streaming"
