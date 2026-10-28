@@ -245,6 +245,8 @@ class DatarefTracker(object):
          "Pressure altitude in standard atmosphere", 0),
         ("sim/graphics/scenery/sun_pitch_degrees", "°",
          "Sun elevation angle from horizontal (v9.40.0+)", 1),
+        ("sim/flightmodel/position/true_psi", "°",
+         "True heading for the north-up moving map", 0),
     ]
     # fmt:on
 
@@ -265,6 +267,7 @@ class DatarefTracker(object):
         self.lon = -1.0
         self.alt = -1.0
         self.hdg = -1.0
+        self.true_hdg = None
         self.spd = -1.0
         self.local_time_sec = -1.0  # Local time (seconds since midnight)
         self.pressure_alt = -1.0  # Pressure altitude in feet
@@ -378,7 +381,7 @@ class DatarefTracker(object):
 
         Returns:
             dict: Flight data with keys 'lat', 'lon', 'alt', 'hdg',
-                  'spd', 'local_time_sec', 'pressure_alt', 'sun_pitch',
+                  'true_hdg', 'spd', 'local_time_sec', 'pressure_alt', 'sun_pitch',
                   'connected', 'data_valid', 'timestamp'.
                   Returns None if not connected or data is invalid.
         """
@@ -390,6 +393,7 @@ class DatarefTracker(object):
                 'lon': self.lon,
                 'alt': self.alt,
                 'hdg': self.hdg,
+                'true_hdg': self.true_hdg,
                 'spd': self.spd,
                 'local_time_sec': self.local_time_sec,
                 'pressure_alt': self.pressure_alt,
@@ -602,7 +606,8 @@ class DatarefTracker(object):
                     self.has_ever_connected = True  # Permanent flag for startup detection
 
                 # Accept 5+ values for backward compatibility
-                # (6th=local_time_sec, 7th=pressure_alt, 8th=sun_pitch)
+                # (6th=local_time_sec, 7th=pressure_alt, 8th=sun_pitch,
+                # 9th=true heading for the moving map).
                 if len(values) >= 5:
                     lat = values[0]
                     lon = values[1]
@@ -622,6 +627,12 @@ class DatarefTracker(object):
                         self.lon = lon
                         self.alt = alt
                         self.hdg = hdg
+                        self.true_hdg = (
+                            values[8]
+                            if len(values) >= 9 and math.isfinite(values[8])
+                            and 0 <= values[8] <= 360
+                            else None
+                        )
                         self.spd = spd
                         # Only update local_time_sec if we received it
                         if local_time is not None:

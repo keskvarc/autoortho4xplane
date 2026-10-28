@@ -1,0 +1,12 @@
+Leaflet 1.9.4
+https://leafletjs.com/
+https://github.com/Leaflet/Leaflet/tree/v1.9.4
+Bundled JavaScript, CSS, and images are distributed under the BSD 2-Clause
+license in Leaflet-LICENSE.txt. Text line endings are normalized to LF.
+No CDN is used at runtime.
+
+Natural Earth 1:110m countries, version 5.1.2
+https://github.com/nvkelso/natural-earth-vector/tree/f1890d9f152c896d250a77557a5751a93d494776
+geojson/ne_110m_admin_0_countries.geojson
+Public domain: https://www.naturalearthdata.com/about/terms-of-use/
+The bundled world.js retains country geometry and display names only.

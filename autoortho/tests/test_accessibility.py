@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtWidgets import QApplication, QLabel, QDoubleSpinBox
 
 from aoconfig import AOConfig
@@ -43,13 +43,14 @@ def config_ui(qt_app, monkeypatch, tmp_path):
     ui.settings_session.mark_applied(ui._snapshot_settings())
     ui.close()
     ui.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt_app.processEvents()
 
 
 def test_shell_custom_controls_have_accessible_names(qt_app):
     shell = ApplicationShell()
     assert shell.header.accessibleName()
-    assert shell.header.runtime_chip.accessibleName()
+    assert shell.header.xplane_chip.accessibleName()
     assert shell.header.start_stop_button.accessibleName()
     assert shell.header.overflow_button.accessibleName()
     assert all(
@@ -167,7 +168,8 @@ shell.show()
 app.processEvents()
 assert shell.minimumSizeHint().width() <= shell.width()
 assert shell.header.start_stop_button.width() >= shell.header.start_stop_button.sizeHint().width()
-assert shell.page('home').findChild(__import__('PySide6.QtWidgets', fromlist=['QScrollArea']).QScrollArea) is not None
+assert shell.page('home').view is not None
+assert shell.page('home').view.width() > 0
 shell.close()
 """
     env = os.environ.copy()
@@ -184,15 +186,20 @@ shell.close()
     assert result.returncode == 0, result.stderr
 
 
-def test_long_localized_navigation_label_is_not_clipped(qt_app):
+def test_long_localized_navigation_label_remains_available_as_tooltip(qt_app):
     shell = ApplicationShell()
     button = shell.navigation.button_for("scenery-library")
-    button.setText("Scenery Library With A Much Longer Localized Name")
+    title = "Scenery Library With A Much Longer Localized Name"
+    button.setText(title)
+    button.setToolTip(title)
     shell.resize(1200, 700)
     shell.show()
     qt_app.processEvents()
 
     assert button.width() >= button.sizeHint().width()
+    assert shell.navigation.width() <= 64
+    assert button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly
+    assert button.toolTip() == title
     shell.close()
 
 

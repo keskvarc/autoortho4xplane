@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' qrc:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>AutoOrtho-KS aircraft map</title>
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="map.css">
+  <script defer src="vendor/leaflet.js"></script>
+  <script defer src="world.js"></script>
+  <script defer src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script defer src="map.js"></script>
+</head>
+<body>
+  <main id="map" aria-label="Aircraft map. Drag or use arrow keys to pan; plus and minus zoom."></main>
+  <div id="position" role="status">Waiting for X-Plane telemetry</div>
+</body>
+</html>

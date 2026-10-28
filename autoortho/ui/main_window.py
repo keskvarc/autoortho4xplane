@@ -59,6 +59,7 @@ if __package__ and __package__.startswith("autoortho."):
     from autoortho.ui.dynamic_zoom_editor import DynamicZoomEditor, PRESETS
     from autoortho.ui.theme import (
         THEME,
+        _asset_path,
         announce_accessible,
         apply_theme,
         repolish,
@@ -116,6 +117,7 @@ else:
     from ui.dynamic_zoom_editor import DynamicZoomEditor, PRESETS
     from ui.theme import (
         THEME,
+        _asset_path,
         announce_accessible,
         apply_theme,
         repolish,
@@ -139,7 +141,7 @@ from PySide6.QtWidgets import (
     QDialog, QApplication
 )
 from PySide6.QtCore import (
-    Qt, Signal, QTimer, QSize, QPoint, QObject, QEvent
+    Qt, Signal, QTimer, QSize, QPoint, QObject, QEvent, QSignalBlocker
 )
 from PySide6.QtGui import (
     QPixmap, QIcon, QColor, QWheelEvent, QCursor, QKeySequence, QShortcut
@@ -518,13 +520,13 @@ class ConfigUI(QMainWindow):
 
         # Kick off asynchronous update check shortly after startup
         try:
-            QTimer.singleShot(250, self.start_update_check)
+            QTimer.singleShot(250, self, self.start_update_check)
         except Exception:
             pass
 
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle(f'AutoOrtho-KS ver {__version__}')
+        self.setWindowTitle(f'AutoOrtho ver {__version__}')
         width = int(getattr(self.cfg.general, "window_width", 1100))
         height = int(getattr(self.cfg.general, "window_height", 760))
         x = int(getattr(self.cfg.general, "window_x", 100))
@@ -663,14 +665,11 @@ class ConfigUI(QMainWindow):
         """)
 
         # Set icon
-        if self.system == 'windows':
-            icon_path = ":/imgs/ao-icon.ico"
-        else:
-            icon_path = ":/imgs/ao-icon.png"
+        icon_path = _asset_path("ao-icon.png")
         self.setWindowIcon(QIcon(icon_path))
 
         self.shell = ApplicationShell(
-            app_name="AutoOrtho-KS",
+            app_name="AutoOrtho",
             version_text=__version__,
             task_manager=self.task_manager,
         )
@@ -723,18 +722,6 @@ class ConfigUI(QMainWindow):
         )
         self.shell.aboutRequested.connect(self._show_about)
         self.shell.quitRequested.connect(self.close)
-        self.shell.fixConfigRequested.connect(
-            lambda: self.navigate_to("settings", "Setup & Storage")
-        )
-        self.shell.installSceneryRequested.connect(
-            lambda: self.navigate_to("scenery-library")
-        )
-        self.shell.openDiagnosticsRequested.connect(
-            lambda: self.navigate_to("diagnostics")
-        )
-        self.shell.openMapRequested.connect(
-            lambda: self.navigate_to("flight-plan-map")
-        )
         self.shell.pageChanged.connect(self._on_shell_page_changed)
         self.tabs.currentChanged.connect(self._on_legacy_tab_changed)
 
@@ -1459,40 +1446,16 @@ class ConfigUI(QMainWindow):
             self.dl.regions.values(),
             self.task_manager.tasks.values(),
         )
-        active = self.task_manager.active_tasks()
-        failures = [
-            task for task in self.task_manager.tasks.values()
-            if task.state == TaskState.FAILED
-        ]
-        rate = sum(task.rate for task in active)
-        self.home_page.set_task(
-            f"{len(active)} active" if active else "Idle",
-            detail=", ".join(task.title for task in active[:3]),
-        )
-        self.home_page.set_throughput(
-            f"{rate / (1024 * 1024):.1f} MB/s"
-        )
-        if failures:
-            failure = failures[-1]
-            self.home_page.set_recent_failure(
-                failure.title,
-                detail=failure.error,
-            )
-        else:
-            self.home_page.clear_recent_failure()
 
     def _update_shell_status(self):
         if not self.phase3_active:
             return
-        try:
-            try:
-                from autoortho.datareftrack import dt
-            except ImportError:
-                from datareftrack import dt
-            flight_data = dt.get_flight_data()
-            xplane_connected = flight_data is not None
-        except Exception:
-            xplane_connected = False
+        if __package__ and __package__.startswith("autoortho."):
+            from autoortho.datareftrack import dt
+        else:
+            from datareftrack import dt
+        flight_data = dt.get_flight_data()
+        xplane_connected = flight_data is not None
         self.shell.set_runtime_state(
             self.runtime_state,
             action_enabled=(
@@ -1511,26 +1474,11 @@ class ConfigUI(QMainWindow):
             or self.runtime_state
             not in (RuntimeState.STOPPED, RuntimeState.ERROR)
         )
-        self.home_page.set_runtime_state(
-            self.runtime_state.value.title(),
-            self.status_bar.currentMessage()
-            if hasattr(self, "status_bar")
-            else "",
+        self.home_page.configure_cache(
+            self.cfg.paths.cache_dir, self.cfg.autoortho.maptype_override,
         )
-        self.home_page.set_xplane_state(
-            "Connected" if xplane_connected else "Disconnected"
-        )
-        mounted_count = len(
-            [
-                handle for handle in getattr(self, "mount_workers", [])
-                if handle.process.poll() is None
-            ]
-        )
-        self.home_page.set_mounted_scenery(
-            f"{mounted_count} active",
-            detail=f"{len(self.cfg.scenery_mounts)} configured",
-        )
-        self.home_page.set_provider(self.maptype_combo.currentText())
+        self.home_page.set_flight_data(flight_data)
+        self._update_streaming_counts()
         simbrief_loaded = bool(
             getattr(self, "simbrief_flight_data", None)
         )
@@ -1538,20 +1486,7 @@ class ConfigUI(QMainWindow):
             simbrief_loaded
             and self.simbrief_use_flight_data_check.isChecked()
         )
-        self.home_page.set_simbrief(
-            "Active" if simbrief_active else "Loaded"
-            if simbrief_loaded
-            else "No flight plan"
-        )
         if self.current_readiness is not None:
-            warnings = [
-                check for check in self.current_readiness.checks
-                if check.status != ReadinessStatus.SUCCESS
-            ]
-            self.home_page.set_readiness_state(
-                "Ready" if not warnings else f"{len(warnings)} issue(s)",
-                detail=", ".join(check.title for check in warnings),
-            )
             self.diagnostics_page.set_health(
                 self.current_readiness.checks,
                 xplane_connected=xplane_connected,
@@ -1564,11 +1499,33 @@ class ConfigUI(QMainWindow):
         except Exception:
             pass
 
+    def _update_streaming_counts(self):
+        store = getattr(self, "_shared_store", None)
+        if store is None:
+            return
+        try:
+            streamed = store.get("chunk_streamed", 0)
+            cache_hits = sum(
+                store.get(name, 0)
+                for name in (
+                    "chunk_hit",
+                    "chunk_lt_hit",
+                    "tile_mem_hits",
+                    "dynamic_dds_cache_hit",
+                    "dds_cache_hit_after_transition",
+                )
+            )
+        except (OSError, EOFError) as error:
+            log.warning("Cannot read streaming counts: %s", error)
+            self.home_page.set_streaming_counts(None, None)
+        else:
+            self.home_page.set_streaming_counts(streamed, cache_hits)
+
     def _show_about(self):
         QMessageBox.about(
             self,
-            "About AutoOrtho-KS",
-            f"AutoOrtho-KS {__version__}\n\n"
+            "About AutoOrtho",
+            f"AutoOrtho {__version__}\n\n"
             "On-demand orthophoto scenery streaming for X-Plane.",
         )
 
@@ -1684,16 +1641,17 @@ class ConfigUI(QMainWindow):
     def _on_settings_control_changed(self, *args):
         if (
             not self._settings_tracking_ready
+            or self._closing
             or self._restoring_settings
             or self._settings_observe_scheduled
         ):
             return
         self._settings_observe_scheduled = True
-        QTimer.singleShot(0, self._observe_settings)
+        QTimer.singleShot(0, self, self._observe_settings)
 
     def _observe_settings(self):
         self._settings_observe_scheduled = False
-        if self._restoring_settings:
+        if self._closing or self._restoring_settings:
             return
         self.settings_session.observe(self._snapshot_settings())
 
@@ -2057,11 +2015,6 @@ class ConfigUI(QMainWindow):
             f"Cache usage: {format_bytes(usage)} • "
             f"Free space: {format_bytes(free)}"
         )
-        if self.phase3_active:
-            self.home_page.set_cache(
-                format_bytes(usage),
-                detail=f"{format_bytes(free)} free",
-            )
 
     def _on_storage_scan_finished(self, worker):
         if self.storage_scan_worker is worker:
@@ -7162,11 +7115,11 @@ class ConfigUI(QMainWindow):
         self.running = self.runtime_state == RuntimeState.RUNNING
 
         labels = {
-            RuntimeState.STOPPED: ("Start Streaming", True),
+            RuntimeState.STOPPED: ("Start", True),
             RuntimeState.STARTING: ("Starting…", False),
-            RuntimeState.RUNNING: ("Stop Streaming", True),
+            RuntimeState.RUNNING: ("Stop", True),
             RuntimeState.STOPPING: ("Stopping…", False),
-            RuntimeState.ERROR: ("Retry Streaming", True),
+            RuntimeState.ERROR: ("Start", True),
         }
         button_text, button_enabled = labels[self.runtime_state]
         self.run_button.setText(button_text)
@@ -7182,18 +7135,20 @@ class ConfigUI(QMainWindow):
             RuntimeState.STOPPING,
         )
 
-        self.tabs.setTabEnabled(
-            self.tabs.indexOf(self.setup_widget),
-            not transitioning,
-        )
-        self.tabs.setTabEnabled(
-            self.tabs.indexOf(self.scenery_widget),
-            editable,
-        )
-        self.tabs.setTabEnabled(
-            self.tabs.indexOf(self.settings_widget),
-            editable,
-        )
+        # Hidden tab availability changes are not navigation requests.
+        with QSignalBlocker(self.tabs):
+            self.tabs.setTabEnabled(
+                self.tabs.indexOf(self.setup_widget),
+                not transitioning,
+            )
+            self.tabs.setTabEnabled(
+                self.tabs.indexOf(self.scenery_widget),
+                editable,
+            )
+            self.tabs.setTabEnabled(
+                self.tabs.indexOf(self.settings_widget),
+                editable,
+            )
         self.save_button.setEnabled(not transitioning)
 
         self.paths_group.setEnabled(editable)
@@ -9183,6 +9138,7 @@ class ConfigUI(QMainWindow):
         """Handle window close event without freezing UI during cache clean"""
         # If we're in the second pass (ready to close), just accept and exit
         if self._ready_to_close:
+            self.home_page.shutdown()
             event.accept()
             return
 
@@ -9364,6 +9320,7 @@ class ConfigUI(QMainWindow):
             return
 
         # No auto-clean requested or already handled; proceed to close
+        self.home_page.shutdown()
         event.accept()
 
     def _finalize_shutdown(self):

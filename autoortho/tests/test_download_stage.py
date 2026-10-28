@@ -100,7 +100,9 @@ def test_begin_network_attempt_honours_cancellation(chunk):
 # finish_network_attempt
 # ---------------------------------------------------------------------------
 
-def test_successful_response_persists_and_marks_ready(chunk):
+def test_successful_response_persists_and_marks_ready(chunk, monkeypatch):
+    metrics = []
+    monkeypatch.setattr(getortho, "bump", lambda key, n=1: metrics.append((key, n)))
     request = _prepare(chunk)
     outcome = chunk.finish_network_attempt(request, FakeResponse(200, JPEG))
 
@@ -109,9 +111,12 @@ def test_successful_response_persists_and_marks_ready(chunk):
     assert chunk.data == JPEG
     assert chunk.ready.is_set()
     assert chunk.permanent_failure is False
+    assert metrics.count(("chunk_streamed", 1)) == 1
 
 
-def test_non_jpeg_body_is_rejected_but_still_resolves(chunk):
+def test_non_jpeg_body_is_rejected_but_still_resolves(chunk, monkeypatch):
+    metrics = []
+    monkeypatch.setattr(getortho, "bump", lambda key, n=1: metrics.append((key, n)))
     request = _prepare(chunk)
     outcome = chunk.finish_network_attempt(
         request, FakeResponse(200, b"<html>nope</html>")
@@ -120,6 +125,7 @@ def test_non_jpeg_body_is_rejected_but_still_resolves(chunk):
     assert outcome.resolved is True
     assert chunk.data == b""
     assert chunk.ready.is_set()
+    assert ("chunk_streamed", 1) not in metrics
 
 
 def test_permanent_status_is_terminal(chunk):

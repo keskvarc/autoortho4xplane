@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QWidget
 
 from ui.main_window import ApplicationShell
 from ui.runtime_state import RuntimeState
+from ui.task_models import TaskType
 
 
 def test_shell_builds_default_pages_and_updates_header(qt_app):
@@ -22,16 +23,25 @@ def test_shell_builds_default_pages_and_updates_header(qt_app):
         "diagnostics",
     ]
     assert shell.current_page() is shell.page("home")
-    assert shell.header.start_stop_button.text() == "Start Streaming"
+    assert shell.header.start_stop_button.text() == "Start"
 
-    shell.set_runtime_state(RuntimeState.RUNNING)
+    shell.set_runtime_state(
+        RuntimeState.RUNNING, message="Scenery mounts are ready"
+    )
     shell.set_xplane_state(True)
-    shell.set_task_count(2)
+    shell.task_manager.create_task(
+        "catalog", TaskType.CATALOG, "Refresh scenery catalog"
+    )
     shell.set_update_available("2.0.0")
 
-    assert shell.header.runtime_chip.text() == "● Running"
+    assert shell.header.start_stop_button.text() == "Stop"
+    assert shell.header.start_stop_button.toolTip() == "Scenery mounts are ready"
     assert shell.header.xplane_chip.text() == "✓ X-Plane connected"
-    assert shell.header.task_chip.text() == "● 2 active tasks"
+    assert shell.header.findChildren(QLabel, "chipLabel") == [
+        shell.header.xplane_chip,
+    ]
+    assert not shell.task_panel.isHidden()
+    assert "catalog" in shell.task_panel.rows
     assert shell.header.update_banner.isHidden() is False
 
     shell.clear_update_available()
@@ -69,6 +79,9 @@ def test_shell_page_switching_and_action_signals(qt_app):
     shell.header.docs_action.trigger()
     shell.header.about_action.trigger()
     shell.header.quit_action.trigger()
+    for state in (RuntimeState.STARTING, RuntimeState.STOPPING):
+        shell.header.set_runtime_state(state)
+        shell.header.start_stop_button.click()
     shell.header.set_runtime_state(RuntimeState.RUNNING)
     shell.header.start_stop_button.click()
 
@@ -80,6 +93,34 @@ def test_shell_page_switching_and_action_signals(qt_app):
     assert signals["docs"] == [True]
     assert signals["about"] == [True]
     assert signals["quit"] == [True]
+
+
+def test_streaming_button_keeps_its_width_across_runtime_states(qt_app):
+    shell = ApplicationShell()
+    shell.show()
+    qt_app.processEvents()
+    button = shell.header.start_stop_button
+    width = button.width()
+
+    for state, label, enabled in (
+        (RuntimeState.STOPPED, "Start", True),
+        (RuntimeState.STARTING, "Starting…", False),
+        (RuntimeState.RUNNING, "Stop", True),
+        (RuntimeState.STOPPING, "Stopping…", False),
+        (RuntimeState.STOPPED, "Start", True),
+        (RuntimeState.ERROR, "Start", True),
+    ):
+        shell.set_runtime_state(state)
+        qt_app.processEvents()
+        assert button.text() == label
+        assert button.accessibleName() == (
+            f"{label.removesuffix('…')} scenery streaming"
+        )
+        assert button.isEnabled() == enabled
+        assert button.width() == width
+        assert button.width() >= button.sizeHint().width()
+
+    shell.close()
 
 
 def test_overflow_menu_groups_setup_help_and_exit_actions(qt_app):

@@ -1,6 +1,6 @@
 """Shell pages."""
 
-from .home_page import HomePage, StatusCard
+from .home_page import HomePage
 from .diagnostics_page import DiagnosticsPage
 from .flight_plan_page import FlightPlanPage
 from .scenery_page import SceneryLibraryPage
@@ -12,5 +12,4 @@ __all__ = [
     "HomePage",
     "SceneryLibraryPage",
     "SettingsPage",
-    "StatusCard",
 ]

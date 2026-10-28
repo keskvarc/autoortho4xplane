@@ -5,6 +5,8 @@ import sys
 import threading
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(
     0,
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -273,6 +275,77 @@ def test_parent_retries_broker_in_process_after_spawn_failure(monkeypatch):
 
     assert [broker.in_process for broker in created] == [False, True]
     assert mount._download_broker is created[1]
+
+
+def test_parent_restart_releases_diagnostic_clients(monkeypatch):
+    import importlib
+    import getortho
+    import httpx
+    from http2_broker import HTTP2Broker
+
+    autoortho_mod = importlib.import_module("autoortho")
+    mount = autoortho_mod.AOMount.__new__(autoortho_mod.AOMount)
+    mount.cfg = SimpleNamespace(
+        autoortho=SimpleNamespace(http2_enabled=True)
+    )
+    mount._download_broker = None
+    mount._download_broker_env = {}
+    getortho._close_http2_client()
+    monkeypatch.setattr(getortho, "_http2_client_failed", False)
+    monkeypatch.setattr(getortho, "_http2_client_config", None, raising=False)
+
+    def create_broker(**kwargs):
+        return HTTP2Broker(
+            in_process=True,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, content=b"diagnostic")
+            ),
+            **kwargs,
+        )
+
+    monkeypatch.setattr(autoortho_mod, "HTTP2Broker", create_broker)
+    try:
+        for _ in range(3):
+            mount.start_download_broker()
+            client = getortho._get_http2_client()
+            assert client.get("http://example.test/tile").content == b"diagnostic"
+
+            mount.stop_download_broker()
+
+            assert client._dispatcher is None
+            assert client._zmq_ctx is None
+            assert "AO_HTTP2_BROKER_ADDR" not in os.environ
+            assert "AO_HTTP2_BROKER_TOKEN" not in os.environ
+    finally:
+        getortho._close_http2_client()
+        mount.stop_download_broker()
+
+
+def test_parent_shutdown_stops_owner_when_client_cleanup_fails(monkeypatch):
+    import importlib
+
+    autoortho_mod = importlib.import_module("autoortho")
+    mount = autoortho_mod.AOMount.__new__(autoortho_mod.AOMount)
+    calls = []
+
+    def close_client():
+        calls.append("client")
+        raise RuntimeError("client cleanup failed")
+
+    monkeypatch.setattr(
+        autoortho_mod,
+        "_get_imagery_module",
+        lambda: SimpleNamespace(_close_http2_client=close_client),
+    )
+    mount._download_broker = SimpleNamespace(
+        stop=lambda: calls.append("owner")
+    )
+    mount._download_broker_env = {}
+
+    with pytest.raises(RuntimeError, match="client cleanup failed"):
+        mount.stop_download_broker()
+
+    assert calls == ["client", "owner"]
 
 
 def test_windows_runtime_selects_fuse_library_before_import(

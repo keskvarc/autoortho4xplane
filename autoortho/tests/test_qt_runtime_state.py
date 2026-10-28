@@ -9,8 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from PySide6.QtCore import QThread
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QCoreApplication, QEvent, QThread
+from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QGroupBox, QPushButton
 from PySide6.QtWidgets import QMessageBox
 
@@ -18,6 +18,7 @@ from aoconfig import AOConfig
 from config_ui_qt import ConfigUI
 from ui.runtime_state import RuntimeState
 from ui.services.common import ServiceResult
+from ui.theme import _asset_path
 
 
 @pytest.fixture
@@ -57,6 +58,7 @@ def config_ui(qt_app, monkeypatch, tmp_path):
     ui.settings_session.mark_applied(ui._snapshot_settings())
     ui.close()
     ui.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt_app.processEvents()
     qt_app.exit(0)
 
@@ -73,16 +75,42 @@ def _wait_for_state(app, ui, state, timeout=2.0):
     )
 
 
-def test_fork_identity_without_scenery_banner(config_ui):
-    assert config_ui.windowTitle().startswith("AutoOrtho-KS ver ")
-    assert config_ui.shell.header.app_name_label.text() == "AutoOrtho-KS"
+def test_standard_identity_with_satellite_icon(config_ui):
+    assert config_ui.windowTitle().startswith("AutoOrtho ver ")
+    assert config_ui.shell.header.app_name_label.text() == "AutoOrtho"
     assert config_ui.shell.header.brand_image_label.isHidden()
     assert not config_ui.shell.header.app_icon_label.isHidden()
+    satellite = QPixmap(_asset_path("ao-icon.png"))
+    assert not satellite.isNull()
+    assert (
+        config_ui.windowIcon().pixmap(satellite.size()).toImage()
+        == satellite.toImage()
+    )
+
+
+def test_closing_ignores_queued_settings_changes(config_ui, qt_app, monkeypatch):
+    observed = []
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            config_ui, "_snapshot_settings",
+            lambda: observed.append(True) or {},
+        )
+        config_ui._settings_observe_scheduled = False
+        config_ui._on_settings_control_changed()
+        assert config_ui._settings_observe_scheduled
+        config_ui._closing = True
+        try:
+            qt_app.processEvents()
+            assert observed == []
+            config_ui._on_settings_control_changed()
+            assert not config_ui._settings_observe_scheduled
+        finally:
+            config_ui._closing = False
 
 
 def test_runtime_state_controls(config_ui):
     config_ui._set_runtime_state(RuntimeState.RUNNING)
-    assert config_ui.run_button.text() == "Stop Streaming"
+    assert config_ui.run_button.text() == "Stop"
     assert config_ui.run_button.isEnabled()
     assert not config_ui.paths_group.isEnabled()
     assert not config_ui.tabs.isTabEnabled(
@@ -92,9 +120,85 @@ def test_runtime_state_controls(config_ui):
     assert not config_ui.apply_button.isEnabled()
 
     config_ui._set_runtime_state(RuntimeState.STOPPED)
-    assert config_ui.run_button.text() == "Start Streaming"
+    assert config_ui.run_button.text() == "Start"
     assert config_ui.paths_group.isEnabled()
     assert not config_ui.apply_button.isEnabled()
+
+
+def test_map_counts_follow_shared_stats_and_reset_for_a_new_session(
+    config_ui, monkeypatch,
+):
+    from aostats import StatsStore
+
+    store = StatsStore()
+    store.inc_many({
+        "chunk_streamed": 7,
+        "chunk_hit": 13644,
+        "chunk_lt_hit": 4,
+        "tile_mem_hits": 3,
+        "dynamic_dds_cache_hit": 9,
+        "dds_cache_hit_after_transition": 2,
+        "chunk_miss": 18,
+    })
+    monkeypatch.setattr(config_ui, "_shared_store", store, raising=False)
+    config_ui._update_streaming_counts()
+    label = config_ui.home_page.streaming_counts_label
+    assert label.text() == "Streamed: 7  |  Cache hits: 13,662"
+
+    store.inc("chunk_streamed")
+    store.inc("chunk_hit", 5)
+    config_ui._update_streaming_counts()
+    assert label.text() == "Streamed: 8  |  Cache hits: 13,667"
+
+    config_ui._shared_store = None
+    config_ui._update_streaming_counts()
+    assert label.text() == "Streamed: 8  |  Cache hits: 13,667"
+
+    config_ui._shared_store = StatsStore()
+    config_ui._update_streaming_counts()
+    assert label.text() == "Streamed: 0  |  Cache hits: 0"
+
+
+def test_map_counts_report_unavailable_stats(config_ui, monkeypatch, caplog):
+    class UnavailableStore:
+        def get(self, *args):
+            raise BrokenPipeError("stats manager unavailable")
+
+    monkeypatch.setattr(
+        config_ui, "_shared_store", UnavailableStore(), raising=False,
+    )
+    config_ui._update_streaming_counts()
+    assert (
+        config_ui.home_page.streaming_counts_label.text()
+        == "Streamed: --  |  Cache hits: --"
+    )
+    assert "Cannot read streaming counts" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "page",
+    ["home", "scenery-library", "flight-plan-map", "settings", "diagnostics"],
+)
+def test_runtime_transitions_preserve_selected_page(config_ui, qt_app, page):
+    config_ui.tabs.setCurrentWidget(config_ui.setup_widget)
+    config_ui.navigate_to(page)
+    navigation_events = []
+    config_ui.shell.pageChanged.connect(navigation_events.append)
+
+    for state in (
+        RuntimeState.STARTING,
+        RuntimeState.RUNNING,
+        RuntimeState.STOPPING,
+        RuntimeState.STOPPED,
+        RuntimeState.STARTING,
+        RuntimeState.ERROR,
+    ):
+        config_ui._set_runtime_state(state)
+        qt_app.processEvents()
+        assert config_ui.shell.current_page() is config_ui.shell.page(page), state
+        assert config_ui.shell.navigation.current_destination() == page, state
+
+    assert navigation_events == []
 
 
 def test_partial_loading_controls_are_safe_and_persist(config_ui):
@@ -901,5 +1005,6 @@ def test_production_aomountui_mro_runs_async_lifecycle(
         for worker in ui.findChildren(QThread)
     )
     ui.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qt_app.processEvents()
     qt_app.exit(0)

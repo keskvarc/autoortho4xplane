@@ -5,16 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from PySide6.QtCore import QSignalBlocker, Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QButtonGroup,
     QFrame,
+    QStyle,
     QToolButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
+
+from .theme import _asset_path
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,7 @@ class NavigationDestination:
     key: str
     title: str
     tooltip: str = ""
+    icon_file: str = ""
 
 
 class NavigationRail(QFrame):
@@ -44,9 +48,9 @@ class NavigationRail(QFrame):
         )
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFrameShadow(QFrame.Shadow.Raised)
-        self.setMinimumWidth(176)
+        self.setFixedWidth(64)
         self.setSizePolicy(
-            QSizePolicy.Policy.Minimum,
+            QSizePolicy.Policy.Fixed,
             QSizePolicy.Policy.Expanding,
         )
 
@@ -72,12 +76,22 @@ class NavigationRail(QFrame):
 
     @staticmethod
     def _default_destinations() -> list[NavigationDestination]:
+        # Pre-rendered icons avoid the optional Qt SVG plugin at runtime.
         return [
-            NavigationDestination("home", "Home"),
-            NavigationDestination("scenery-library", "Scenery Library"),
-            NavigationDestination("flight-plan-map", "Flight Plan & Map"),
-            NavigationDestination("settings", "Settings"),
-            NavigationDestination("diagnostics", "Diagnostics"),
+            NavigationDestination("home", "Home", icon_file="nav-home.png"),
+            NavigationDestination(
+                "scenery-library", "Scenery Library",
+                icon_file="nav-scenery.png",
+            ),
+            NavigationDestination(
+                "flight-plan-map", "Flight Plan & Map",
+                icon_file="nav-map.png",
+            ),
+            NavigationDestination("settings", "Settings", icon_file="nav-settings.png"),
+            NavigationDestination(
+                "diagnostics", "Diagnostics",
+                icon_file="nav-diagnostics.png",
+            ),
         ]
 
     def add_destination(
@@ -101,14 +115,16 @@ class NavigationRail(QFrame):
         button.setAccessibleDescription(item.tooltip or item.title)
         button.setCheckable(True)
         button.setAutoRaise(False)
-        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        font = button.font()
-        font.setPointSize(max(12, font.pointSize() + 2))
-        font.setWeight(QFont.Weight.DemiBold)
-        button.setFont(font)
-        button.setMinimumHeight(42)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        button.setIcon(
+            QIcon(_asset_path(item.icon_file))
+            if item.icon_file
+            else self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+        )
+        button.setIconSize(QSize(24, 24))
+        button.setFixedSize(46, 46)
         button.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
             QSizePolicy.Policy.Fixed,
         )
         button.clicked.connect(

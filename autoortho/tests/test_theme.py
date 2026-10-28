@@ -6,9 +6,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor, QFontDatabase
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
+from ui.runtime_state import RuntimeState
+from ui.shell import CompactHeader
 from ui.theme import (
     THEME,
     apply_theme,
@@ -98,3 +102,41 @@ def test_repolish_handles_dynamic_properties(qt_app):
     button.setProperty("role", "primary")
     repolish(button)
     assert button.property("role") == "primary"
+
+
+def test_streaming_button_renders_green_only_when_running(qt_app):
+    apply_theme(qt_app)
+    header = CompactHeader()
+    header.show()
+    button = header.start_stop_button
+    QTest.mouseMove(header, QPoint(1, 1))
+
+    def background():
+        qt_app.processEvents()
+        return button.grab().toImage().pixelColor(8, button.height() // 2)
+
+    header.set_runtime_state(RuntimeState.RUNNING)
+    assert background() == QColor(THEME.colors.success)
+    assert contrast_ratio(
+        button.palette().buttonText().color(), background()
+    ) >= 4.5
+
+    QTest.mouseMove(button, QPoint(8, button.height() // 2))
+    color = background()
+    assert color.green() > max(color.red(), color.blue())
+    QTest.mousePress(button, Qt.MouseButton.LeftButton)
+    color = background()
+    assert color.green() > max(color.red(), color.blue())
+    QTest.mouseRelease(button, Qt.MouseButton.LeftButton)
+    QTest.mouseMove(header, QPoint(1, 1))
+
+    header.set_runtime_state(RuntimeState.RUNNING, action_enabled=False)
+    assert background() == QColor(THEME.colors.window)
+    for state in (RuntimeState.STARTING, RuntimeState.STOPPING):
+        header.set_runtime_state(state)
+        assert background() == QColor(THEME.colors.window)
+    for state in (RuntimeState.STOPPED, RuntimeState.ERROR):
+        header.set_runtime_state(state)
+        assert background() == QColor(THEME.colors.primary)
+
+    header.close()

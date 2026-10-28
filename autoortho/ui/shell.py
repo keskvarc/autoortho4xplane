@@ -90,7 +90,6 @@ class CompactHeader(QFrame):
 
         self._runtime_state = RuntimeState.STOPPED
         self._xplane_connected = False
-        self._task_count = 0
         self._update_version_text = ""
         self.update_available = False
 
@@ -132,18 +131,13 @@ class CompactHeader(QFrame):
         chip_row = QHBoxLayout()
         chip_row.setSpacing(8)
 
-        self.runtime_chip = _ChipLabel("■ Stopped")
-        self.runtime_chip.setAccessibleName("Streaming status")
         self.xplane_chip = _ChipLabel("○ X-Plane disconnected")
         self.xplane_chip.setAccessibleName("X-Plane connection status")
-        self.task_chip = _ChipLabel("○ No active tasks")
-        self.task_chip.setAccessibleName("Active background tasks")
-        chip_row.addWidget(self.runtime_chip)
         chip_row.addWidget(self.xplane_chip)
-        chip_row.addWidget(self.task_chip)
 
-        self.start_stop_button = QPushButton("Start Streaming")
+        self.start_stop_button = QPushButton("Start")
         self.start_stop_button.setObjectName("startStopButton")
+        self.start_stop_button.setFixedWidth(112)
         self.start_stop_button.setAccessibleName("Start scenery streaming")
         self.start_stop_button.clicked.connect(self._on_start_stop_clicked)
         chip_row.addWidget(self.start_stop_button)
@@ -261,37 +255,25 @@ class CompactHeader(QFrame):
     ) -> None:
         runtime_state = RuntimeState(state)
         self._runtime_state = runtime_state
-        texts = {
-            RuntimeState.STOPPED: "■ Stopped",
-            RuntimeState.STARTING: "◌ Starting…",
-            RuntimeState.RUNNING: "● Running",
-            RuntimeState.STOPPING: "◌ Stopping…",
-            RuntimeState.ERROR: "! Error",
-        }
-        semantic_states = {
-            RuntimeState.STOPPED: "info",
-            RuntimeState.STARTING: "info",
-            RuntimeState.RUNNING: "success",
-            RuntimeState.STOPPING: "warning",
-            RuntimeState.ERROR: "error",
-        }
-        self.runtime_chip.setText(message or texts[runtime_state])
-        self.runtime_chip.setProperty(
-            "state",
-            semantic_states[runtime_state],
-        )
-        repolish(self.runtime_chip)
         if runtime_state == RuntimeState.RUNNING:
-            self.start_stop_button.setText("Stop Streaming")
+            self.start_stop_button.setText("Stop")
             self.start_stop_button.setAccessibleName(
                 "Stop scenery streaming"
             )
             self.start_stop_button.setEnabled(True)
         elif runtime_state in (RuntimeState.STARTING, RuntimeState.STOPPING):
-            self.start_stop_button.setText(texts[runtime_state])
+            action = (
+                "Starting"
+                if runtime_state == RuntimeState.STARTING
+                else "Stopping"
+            )
+            self.start_stop_button.setText(f"{action}…")
+            self.start_stop_button.setAccessibleName(
+                f"{action} scenery streaming"
+            )
             self.start_stop_button.setEnabled(False)
         else:
-            self.start_stop_button.setText("Start Streaming")
+            self.start_stop_button.setText("Start")
             self.start_stop_button.setAccessibleName(
                 "Start scenery streaming"
             )
@@ -300,6 +282,14 @@ class CompactHeader(QFrame):
             self.start_stop_button.setEnabled(
                 self.start_stop_button.isEnabled() and bool(action_enabled)
             )
+        self.start_stop_button.setProperty(
+            "state",
+            "success" if runtime_state == RuntimeState.RUNNING else "",
+        )
+        self.start_stop_button.setToolTip(
+            message or self.start_stop_button.accessibleName()
+        )
+        repolish(self.start_stop_button)
 
     def set_xplane_state(
         self,
@@ -321,21 +311,6 @@ class CompactHeader(QFrame):
             "success" if self._xplane_connected else "warning",
         )
         repolish(self.xplane_chip)
-
-    def set_task_count(self, count: int) -> None:
-        self._task_count = max(0, int(count))
-        if self._task_count == 0:
-            text = "○ No active tasks"
-        elif self._task_count == 1:
-            text = "● 1 active task"
-        else:
-            text = f"● {self._task_count} active tasks"
-        self.task_chip.setText(text)
-        self.task_chip.setProperty(
-            "state",
-            "info" if self._task_count else "",
-        )
-        repolish(self.task_chip)
 
     def set_update_available(
         self,
@@ -368,10 +343,6 @@ class ApplicationShell(QMainWindow):
     updateRemindRequested = Signal()
     updateDismissRequested = Signal()
     updateCheckRequested = Signal()
-    fixConfigRequested = Signal()
-    installSceneryRequested = Signal()
-    openDiagnosticsRequested = Signal()
-    openMapRequested = Signal()
     pageChanged = Signal(str)
 
     def __init__(
@@ -437,10 +408,8 @@ class ApplicationShell(QMainWindow):
 
         self.navigation.destinationChanged.connect(self.set_page)
         self.stack.currentChanged.connect(self._on_current_page_changed)
-        self.task_manager.active_count_changed.connect(self.set_task_count)
 
         self._build_default_pages()
-        self.set_task_count(len(self.task_manager.active_tasks()))
         self.set_runtime_state(RuntimeState.STOPPED)
         self.set_xplane_state(False)
 
@@ -467,6 +436,13 @@ class ApplicationShell(QMainWindow):
         for key, widget in default_pages.items():
             self.add_page(widget, key=key, title=self._title_for_key(key))
         self.set_page("home")
+
+    def closeEvent(self, event) -> None:
+        super().closeEvent(event)
+        if event.isAccepted():
+            home = self.page("home")
+            if isinstance(home, HomePage):
+                home.shutdown()
 
     @staticmethod
     def _title_for_key(key: str) -> str:
@@ -509,22 +485,7 @@ class ApplicationShell(QMainWindow):
             self._page_titles[page_key] = page_title
             self.stack.addWidget(page)
 
-        self._wire_home_shortcuts(page)
         return page
-
-    def _wire_home_shortcuts(self, page: QWidget) -> None:
-        for attr, signal in (
-            ("fix_config_requested", self.fixConfigRequested),
-            ("install_scenery_requested", self.installSceneryRequested),
-            ("open_diagnostics_requested", self.openDiagnosticsRequested),
-            ("open_map_requested", self.openMapRequested),
-        ):
-            candidate = getattr(page, attr, None)
-            if candidate is not None:
-                try:
-                    candidate.connect(signal.emit)
-                except Exception:
-                    pass
 
     def pages(self) -> OrderedDict[str, QWidget]:
         return OrderedDict(self._pages)
@@ -604,9 +565,6 @@ class ApplicationShell(QMainWindow):
     ) -> None:
         self.header.set_xplane_state(connected, message=message)
 
-    def set_task_count(self, count: int) -> None:
-        self.header.set_task_count(count)
-
     def set_update_available(
         self,
         version_text: str,
@@ -623,7 +581,6 @@ class ApplicationShell(QMainWindow):
     currentPage = current_page
     setRuntimeState = set_runtime_state
     setXPlaneState = set_xplane_state
-    setTaskCount = set_task_count
     setUpdateAvailable = set_update_available
     clearUpdateAvailable = clear_update_available
 

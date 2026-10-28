@@ -240,6 +240,8 @@ def build_stylesheet(theme: ThemeTokens = THEME) -> str:
     soft_warning = _blend(colors.warning, colors.window, 0.10)
     soft_error = _blend(colors.error, colors.window, 0.10)
     soft_info = _blend(colors.info, colors.window, 0.10)
+    success_hover = _blend(colors.success, colors.text_primary, 0.85)
+    success_pressed = _blend(colors.success, colors.window, 0.85)
 
     base = f"""
 QWidget {{
@@ -812,6 +814,17 @@ QPushButton#startStopButton:pressed {{
     background-color: {colors.pressed};
     border-color: {colors.pressed};
 }}
+QPushButton#startStopButton[state="success"] {{
+    background-color: {colors.success};
+    border-color: {colors.success};
+    color: {colors.window};
+}}
+QPushButton#startStopButton[state="success"]:enabled:hover {{
+    background-color: {success_hover};
+}}
+QPushButton#startStopButton[state="success"]:enabled:pressed {{
+    background-color: {success_pressed};
+}}
 QPushButton[role="primary"]:disabled,
 QToolButton[role="primary"]:disabled,
 QPushButton#startStopButton:disabled,
@@ -876,13 +889,10 @@ QPushButton#startStopButton:focus {{
     border: 2px solid {colors.focus};
 }}
 QFrame#navigationRail QToolButton {{
-    text-align: left;
-    padding: {spacing.md}px {spacing.lg}px;
-    min-height: {control.lg}px;
-    font-size: {typography.heading}pt;
-    font-weight: 600;
+    padding: {spacing.sm}px;
     background-color: transparent;
     border: 1px solid transparent;
+    border-left: 3px solid transparent;
     color: {colors.text_secondary};
     border-radius: {radius.md}px;
 }}

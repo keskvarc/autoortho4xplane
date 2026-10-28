@@ -57,6 +57,8 @@ jobs:
           autoortho/tests/test_main_window.py \
           autoortho/tests/test_navigation.py \
           autoortho/tests/test_home_page.py \
+          autoortho/tests/test_map_tiles.py \
+          autoortho/tests/test_datareftrack.py \
           autoortho/tests/test_flight_plan_page.py \
           autoortho/tests/test_settings_page.py \
           autoortho/tests/test_setup_wizard.py \

@@ -949,7 +949,10 @@ class AutoOrtho(Operations):
         # Uses has_ever_connected to distinguish true startup from temporary disconnects
         # caused by stuttering (which should NOT get extended timeouts).
         try:
-            from datareftrack import dt as datareftracker
+            try:
+                from autoortho.datareftrack import dt as datareftracker
+            except ImportError:
+                from datareftrack import dt as datareftracker
             suspend_maxwait = getattr(CFG.autoortho, 'suspend_maxwait', True)
             if isinstance(suspend_maxwait, str):
                 suspend_maxwait = suspend_maxwait.lower().strip() in ('true', '1', 'yes', 'on')

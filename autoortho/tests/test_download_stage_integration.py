@@ -34,6 +34,86 @@ LEGACY_WORKER_CAP = 64
 
 
 @pytest.fixture
+def broker_generations(monkeypatch):
+    brokers = []
+    getortho._close_http2_client()
+    monkeypatch.setattr(getortho, "_http2_client_failed", False)
+    monkeypatch.setattr(getortho, "_http2_client_config", None, raising=False)
+
+    def start(content):
+        broker = hb.HTTP2Broker(
+            in_process=True,
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, content=content)
+            ),
+        )
+        brokers.append(broker)
+        broker.start()
+        for key, value in broker.client_environment().items():
+            monkeypatch.setenv(key, value)
+        return broker
+
+    try:
+        yield start
+    finally:
+        getortho._close_http2_client()
+        for broker in reversed(brokers):
+            broker.stop(timeout=2.0)
+
+
+def test_cached_client_follows_broker_restarts(broker_generations):
+    previous_client = None
+    previous_owner = None
+    for generation in range(3):
+        if previous_owner is not None:
+            previous_owner.stop()
+        content = f"generation-{generation}".encode()
+        owner = broker_generations(content)
+        client = getortho._get_http2_client()
+
+        assert client is not previous_client
+        if previous_client is not None:
+            assert previous_client._dispatcher is None
+            assert previous_client._zmq_ctx is None
+        assert client.get("http://example.test/tile").content == content
+        assert getortho._get_http2_client() is client
+        previous_client, previous_owner = client, owner
+
+
+def test_failed_attachment_recovers_when_token_changes(
+    monkeypatch, broker_generations
+):
+    owner = broker_generations(b"recovered")
+    token = owner.client_environment()["AO_HTTP2_BROKER_TOKEN"]
+    monkeypatch.setenv("AO_HTTP2_BROKER_TOKEN", "invalid-token")
+    assert getortho._get_http2_client() is None
+
+    monkeypatch.setenv("AO_HTTP2_BROKER_TOKEN", token)
+    client = getortho._get_http2_client()
+
+    assert client is not None
+    assert client.get("http://example.test/tile").content == b"recovered"
+
+
+@pytest.mark.parametrize(
+    "variable", ["AO_HTTP2_BROKER_ADDR", "AO_HTTP2_BROKER_TOKEN"]
+)
+def test_unconfigured_broker_releases_attached_client(
+    monkeypatch, broker_generations, variable
+):
+    owner = broker_generations(b"owner-still-running")
+    client = getortho._get_http2_client()
+    assert client.get("http://example.test/tile").status_code == 200
+
+    monkeypatch.delenv(variable)
+
+    assert getortho._get_http2_client() is None
+    assert client._dispatcher is None
+    assert client._zmq_ctx is None
+    assert owner.get("http://example.test/tile").content == b"owner-still-running"
+
+
+@pytest.fixture
 def broker_env(monkeypatch):
     """Run an in-process broker and point getortho's client at it."""
 

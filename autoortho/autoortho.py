@@ -114,9 +114,9 @@ except ImportError:
     from ui import main_window as config_ui
 
 try:
-    from autoortho.ui.theme import apply_theme
+    from autoortho.ui.theme import _asset_path, apply_theme
 except ImportError:
-    from ui.theme import apply_theme
+    from ui.theme import _asset_path, apply_theme
 
 USE_QT = True
 
@@ -296,6 +296,14 @@ def setupmount(mountpoint, systemtype):
             log.warning(f"Failed to cleanup mountpoint {mountpoint}: {e}")
 
 
+def _get_imagery_module():
+    if __package__:
+        from . import getortho
+    else:
+        import getortho
+    return getortho
+
+
 def diagnose(CFG, mount_timeout=60.0, retry_interval=0.25):
 
     location = geocoder.ip("me")
@@ -360,7 +368,7 @@ def diagnose(CFG, mount_timeout=60.0, retry_interval=0.25):
             mount_failed = True
 
     log.info(f"Checking maptypes:")
-    import getortho
+    getortho = _get_imagery_module()
     for maptype in MAPTYPES:
         if maptype in ("Use tile default", "Custom Map"):
             continue
@@ -937,9 +945,9 @@ class AOMount:
         os.environ.pop("AO_HTTP2_BROKER_TOKEN", None)
         if broker is not None:
             try:
+                _get_imagery_module()._close_http2_client()
+            finally:
                 broker.stop()
-            except Exception as exc:
-                log.error("Error stopping shared HTTP/2 broker: %s", exc)
 
     def _launch_scenery_worker(self, root, mountpoint, threading_enabled=True):
         if threading_enabled:
@@ -1238,7 +1246,10 @@ def main():
     # Start helper threads
     ftrack.start()
 
-    from datareftrack import dt
+    try:
+        from autoortho.datareftrack import dt
+    except ImportError:
+        from datareftrack import dt
     dt.start()
     
     # Run things
@@ -1265,14 +1276,7 @@ def main():
             app = QApplication(sys.argv)
             apply_theme(app)
             
-            # Set application icon - required for macOS dock icon visibility
-            if system_type == 'darwin':
-                # Use native macOS icon format
-                app.setWindowIcon(QIcon(":/imgs/ao-icon.icns"))
-            elif system_type == 'windows':
-                app.setWindowIcon(QIcon(":/imgs/ao-icon.ico"))
-            else:
-                app.setWindowIcon(QIcon(":/imgs/ao-icon.png"))
+            app.setWindowIcon(QIcon(_asset_path("ao-icon.png")))
             
             cfgui = AOMountUI(CFG)
             cfgui.show()

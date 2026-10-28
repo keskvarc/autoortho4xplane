@@ -925,53 +925,69 @@ def create_http_session(pool_size=10):
 _http2_client = None
 _http2_client_lock = threading.Lock()
 _http2_client_failed = False
+_http2_client_config = None
 
 
 def _get_http2_client():
-    global _http2_client, _http2_client_failed
-    if _http2_client is not None:
-        return _http2_client
-    if _http2_client_failed or HTTP2Broker is None:
-        return None
-    address = os.getenv("AO_HTTP2_BROKER_ADDR")
-    token = os.getenv("AO_HTTP2_BROKER_TOKEN")
-    if not address or not token:
-        return None
-    with _http2_client_lock:
-        if _http2_client is not None:
-            return _http2_client
-        try:
-            _http2_client = HTTP2Broker.connect(
-                address,
-                token,
-                max_pending=resolve_provider_setting("provider_max_in_flight"),
-                queue_timeout=resolve_provider_setting(
-                    "provider_queue_timeout"
-                ),
+    """Reuse an attached client only for the current broker generation."""
+    global _http2_client, _http2_client_failed, _http2_client_config
+    stale_client = None
+    try:
+        with _http2_client_lock:
+            config = (
+                os.getenv("AO_HTTP2_BROKER_ADDR"),
+                os.getenv("AO_HTTP2_BROKER_TOKEN"),
             )
-        except Exception as exc:
-            _http2_client_failed = True
-            log.error("Could not connect to shared HTTP/2 broker: %s", exc)
-            return None
-        return _http2_client
+            if config != _http2_client_config:
+                stale_client, _http2_client = _http2_client, None
+                _http2_client_failed = False
+                _http2_client_config = config
+            address, token = config
+            if not address or not token or HTTP2Broker is None:
+                return None
+            if _http2_client is not None:
+                return _http2_client
+            if _http2_client_failed:
+                return None
+            try:
+                _http2_client = HTTP2Broker.connect(
+                    address,
+                    token,
+                    max_pending=resolve_provider_setting("provider_max_in_flight"),
+                    queue_timeout=resolve_provider_setting(
+                        "provider_queue_timeout"
+                    ),
+                )
+            except BrokerError as exc:
+                _http2_client_failed = True
+                log.error("Could not connect to shared HTTP/2 broker: %s", exc)
+                return None
+            return _http2_client
+    finally:
+        # Dispatcher shutdown can run callbacks that also acquire this lock.
+        if stale_client is not None:
+            stale_client.stop()
 
 
 def _close_http2_client():
-    global _http2_client
+    global _http2_client, _http2_client_failed, _http2_client_config
     with _http2_client_lock:
         client, _http2_client = _http2_client, None
+        _http2_client_failed = False
+        _http2_client_config = None
     if client is not None:
         client.stop()
 
 
 def _reset_http2_client(failed_client=None):
     """Discard a dead attached client so the next request can reconnect."""
-    global _http2_client, _http2_client_failed
+    global _http2_client, _http2_client_failed, _http2_client_config
     with _http2_client_lock:
         if failed_client is not None and _http2_client is not failed_client:
             return
         client, _http2_client = _http2_client, None
         _http2_client_failed = False
+        _http2_client_config = None
     if client is not None:
         try:
             client.stop()
@@ -9235,6 +9251,7 @@ class Chunk(object):
         if data and _is_jpeg(data[:3]):
             log.debug(f"Data for {self} is JPEG")
             self.data = data
+            bump('chunk_streamed')
         else:
             log.debug(f"Invalid JPEG for {self} (HTTP {status_code} "
                       f"content-type={response.headers.get('content-type', '?')} "

@@ -1,0 +1,90 @@
+html, body, #map {
+  height: 100%;
+  margin: 0;
+  width: 100%;
+}
+
+body {
+  background: #182b36;
+  color: #e0e0e0;
+  font: 13px sans-serif;
+}
+
+.leaflet-container {
+  background: #182b36;
+  font: inherit;
+}
+
+.leaflet-bar a, .leaflet-bar a:hover {
+  background: #2a2a2a;
+  border-color: #555;
+  color: #e0e0e0;
+}
+
+.leaflet-bar a:hover {
+  background: #3a3a3a;
+}
+
+.leaflet-bar a:focus-visible, #map:focus-visible {
+  outline: 2px solid #6da4e3;
+}
+
+.leaflet-control-scale-line {
+  background: #1e1e1edd;
+  border-color: #b0b0b0;
+  color: #e0e0e0;
+  text-shadow: none;
+}
+
+.aircraft-icon {
+  background: none;
+  border: none;
+}
+
+.aircraft-symbol {
+  display: block;
+  filter: drop-shadow(0 1px 3px #000);
+  height: 36px;
+  transform-origin: center;
+  width: 36px;
+}
+
+.aircraft-symbol svg {
+  fill: #6fbe73;
+  height: 100%;
+  stroke: #162318;
+  stroke-width: 1.3;
+  width: 100%;
+}
+
+.aircraft-stale .aircraft-symbol {
+  opacity: 0.45;
+}
+
+.aircraft-stale .aircraft-symbol svg {
+  fill: #b0b0b0;
+}
+
+#position {
+  background: #1e1e1ee8;
+  border: 1px solid #555;
+  border-radius: 4px;
+  bottom: 12px;
+  left: 50%;
+  max-width: calc(100% - 120px);
+  padding: 7px 10px;
+  pointer-events: none;
+  position: absolute;
+  text-align: center;
+  transform: translateX(-50%);
+  z-index: 1000;
+}
+
+#position.live {
+  border-color: #6fbe73;
+}
+
+#position.stale {
+  border-color: #d7a33c;
+  color: #d7a33c;
+}
